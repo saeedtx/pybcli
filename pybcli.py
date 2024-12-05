@@ -42,10 +42,41 @@ class Pybcli:
             yaml.safe_dump(metadata, mf)
         print(f"Metadata updated for namespace '{namespace}' at '{metadata_file}'")
 
-    def handle_exec(self, namespace, file, func, *args):
-        # Logic for executing a function from a file within a namespace
-        print(f"Executing '{func}' from file '{file}' in namespace '{namespace}' with arguments {args}")
-        remote_command = f"source {file} && {func} {' '.join(args)}"
+    def handle_exec(self, namespace, fname, func, *args):
+        # Use default namespace if not provided
+        namespace = namespace or "default"
+
+        # Load metadata from home and sys directories
+        home_metadata_file = os.path.join(self.home_dir, "metadata.yaml")
+        sys_metadata_file = os.path.join(self.sys_dir, "metadata.yaml")
+
+        metadata = {}
+
+        # Load home metadata first
+        if os.path.exists(home_metadata_file):
+            with open(home_metadata_file, 'r') as mf:
+                home_metadata = yaml.safe_load(mf) or {}
+                metadata.update(home_metadata)
+
+        # Load sys metadata and merge it
+        if os.path.exists(sys_metadata_file):
+            with open(sys_metadata_file, 'r') as mf:
+                sys_metadata = yaml.safe_load(mf) or {}
+                for ns, files in sys_metadata.items():
+                    if ns in metadata:
+                        metadata[ns].update(files)
+                    else:
+                        metadata[ns] = files
+
+        if namespace not in metadata or fname not in metadata[namespace]:
+            raise FileNotFoundError(f"File '{fname}' not found in namespace '{namespace}'")
+
+        # Get the full path of the file
+        file_path = metadata[namespace][fname]
+
+        # Execute the function from the file
+        print(f"Executing '{func}' from file '{file_path}' in namespace '{namespace}' with arguments {args}")
+        remote_command = f"source {file_path} && {func} {' '.join(args)}"
         print(f"Executing command: {remote_command}")
         process = subprocess.Popen(["bash", "-c", remote_command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
