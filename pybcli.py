@@ -19,12 +19,6 @@ class Pybcli:
         namespace_dir = os.path.join(base_dir, namespace)
         os.makedirs(namespace_dir, exist_ok=True)
 
-        # Copy the file into the namespace directory
-        #target_path = os.path.join(namespace_dir, os.path.basename(file))
-        #with open(file, 'r') as src_file:
-        #    with open(target_path, 'w') as dest_file:
-        #        dest_file.write(src_file.read())
-
         # Update metadata
         metadata_file = os.path.join(base_dir, "metadata.yaml")
         metadata = {}

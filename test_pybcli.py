@@ -70,21 +70,20 @@ class TestPybcli(unittest.TestCase):
         test_file = "samples/pinger.sh"
         func_name = "ping_test"
         namespace = "default"
+        fname = os.path.splitext(os.path.basename(test_file))[0]
 
         try:
             self.pybcli.handle_import(test_file, "home", namespace)
-            self.pybcli.handle_exec(namespace, test_file, func_name, "localhost -c 2")
+            self.pybcli.handle_exec(namespace, fname, func_name, "localhost -c 2")
         finally:
-            # Cleanup the imported file
-            target_path = os.path.join(self.pybcli.home_dir, namespace, os.path.basename(test_file))
-            if os.path.exists(target_path):
-                os.remove(target_path)
+            pass
 
     def test_output_function(self):
         # Test executing a function that outputs multiple lines
         test_file = "samples/output.sh"
         func_name = "out_put_test"
         namespace = "default"
+        fname = os.path.splitext(os.path.basename(test_file))[0]
 
         try:
             self.pybcli.handle_import(test_file, "home", namespace)
@@ -94,7 +93,7 @@ class TestPybcli(unittest.TestCase):
                 os.dup2(temp_output.fileno(), 1)
 
                 # Execute the function
-                self.pybcli.handle_exec(namespace, test_file, func_name, "This is a parameter")
+                self.pybcli.handle_exec(namespace, fname, func_name, "This is a parameter")
 
                 # Reset stdout
                 os.dup2(original_stdout, 1)
@@ -106,10 +105,7 @@ class TestPybcli(unittest.TestCase):
                 self.assertIn("Line1: This is a test", output)
                 self.assertIn("Line2: This is a parameter", output)
         finally:
-            # Cleanup the imported file
-            target_path = os.path.join(self.pybcli.home_dir, namespace, os.path.basename(test_file))
-            if os.path.exists(target_path):
-                os.remove(target_path)
+            pass
 
 if __name__ == "__main__":
     unittest.main()
