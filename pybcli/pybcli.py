@@ -14,6 +14,13 @@ class Pybcli:
         self.home_metadata_file = os.path.join(self.home_dir, "metadata.yaml")
         self.sys_metadata_file = os.path.join(self.sys_dir, "metadata.yaml")
 
+    def _reslove_name_space(self, path, namespace):
+        if namespace and namespace != "":
+            return namespace
+        if os.path.isdir(path):
+            return os.path.basename(path)
+        return "default"
+
     def handle_import(self, path, location, namespace):
         # Determine the base directory based on location
         conf_dir = self.sys_dir if location == "sys" else self.home_dir
@@ -23,6 +30,7 @@ class Pybcli:
         metadata_file = self.sys_metadata_file if location == "sys" else self.home_metadata_file
         metadata = self.load_metadata(is_sys=(location == "sys"))
 
+        namespace = self._reslove_name_space(path, namespace)
         if namespace not in metadata:
             metadata[namespace] = {}
 
@@ -43,6 +51,7 @@ class Pybcli:
 
         with open(metadata_file, 'w') as mf:
             yaml.safe_dump(metadata, mf)
+            mf.close()
         print(f"Metadata updated for namespace '{namespace}' at '{metadata_file}'")
 
     def load_metadata(self, is_sys = False):
@@ -51,6 +60,7 @@ class Pybcli:
         if os.path.exists(metadata_file):
             with open(metadata_file, 'r') as mf:
                 metadata = yaml.safe_load(mf) or {}
+                mf.close()
         return metadata
 
     def load_all_metadata(self):
@@ -70,7 +80,7 @@ class Pybcli:
             raise FileNotFoundError(f"File '{fname}' not found in namespace '{namespace}'")
         return metadata[namespace][fname]
 
-    def bash_popen(self, file,func, *args):
+    def bash_popen(self, file, func, *args):
         # Execute the function from the file
         print(f"Executing '{file}'->'{func}' {args}")
         command = f"source {file} && {func} {' '.join(args)} && wait"
@@ -109,6 +119,8 @@ class Pybcli:
         namespace = namespace or "default"
         file = self.resolve_file(namespace, fname)
         process = None
+        # TODO: handle return code properly
+        rc = 127
         try:
             if remote:
                 process = self.ssh_popen(remote, file, func, *args)
@@ -127,15 +139,17 @@ class Pybcli:
             if stderr:
                 print("--- STDERR ---")
                 print(stderr)
-            print(f"Command execution complete with return code: {process.poll()}")
+            rc = process.poll()
+            print(f"Command execution complete with return code: {rc}")
         except subprocess.CalledProcessError as e:
             print(f"Command error: {e}")
         except FileNotFoundError:
             print(f"Error: File {file} not found")
         except KeyboardInterrupt:
             print("Execution interrupted")
+            rc = 130
             if not process:
-                return
+                pass
             process.kill()
             process.wait()
             print(f"Command execution complete with return code: {process.returncode}")
@@ -147,12 +161,17 @@ class Pybcli:
             if stderr:
                 print("--- STDERR END ---")
                 print(stderr)
+            rc = process.returncode if process.returncode else 130
         finally:
+            if process:
+                process.stdout.close()
+                process.stderr.close()
             if process and hasattr(process, 'ssh_control_path__'):
                 # Close the persistent SSH connection
                 close_command = ["ssh", "-O", "exit", "-o", f"ControlPath={process.ssh_control_path__}", remote]
                 print("Closing persistent SSH connection...")
                 subprocess.run(close_command, check=False)
+        return rc
 
     def scan_bash_file(self, file_path):
         # Scan a bash file and extract metadata
@@ -174,6 +193,7 @@ class Pybcli:
             global_annotations[match.group(1)] = match.group(2)
 
         # Extract function metadata
+        # TODO: dict ?
         functions = []
         for match in function_re.finditer(content):
             name = match.group(1)
