@@ -44,20 +44,23 @@ class Pybcli:
                 metadata = yaml.safe_load(mf) or {}
         return metadata
 
+    def load_all_metadata(self):
+        home_metadata = self.load_metadata(is_sys=False)
+        sys_metadata = self.load_metadata(is_sys=True)
+        # merge sys metadata with home metadata
+        for ns, files in sys_metadata.items():
+            if ns in home_metadata:
+                home_metadata[ns].update(files)
+            else:
+                home_metadata[ns] = files
+        return home_metadata
+
     def handle_exec(self, namespace, fname, func, *args):
         # Use default namespace if not provided
         namespace = namespace or "default"
 
         # Load metadata from home and sys directories
-        metadata = self.load_metadata(is_sys=False) # home metadata
-        sys_metadata = self.load_metadata(is_sys=True) # sys metadata
-
-        # Load sys metadata and merge it with home metadata
-        for ns, files in sys_metadata.items():
-            if ns in metadata:
-                metadata[ns].update(files)
-            else:
-                metadata[ns] = files
+        metadata = self.load_all_metadata()
 
         if namespace not in metadata or fname not in metadata[namespace]:
             raise FileNotFoundError(f"File '{fname}' not found in namespace '{namespace}'")
@@ -163,25 +166,47 @@ def arg_complete(comp_cword, prev, curr, comp_words):
             return []
         if prev == "import": # handled in the dump_completion_script function
                 return []
-        home_meta = os.path.join(os.path.expanduser("~/.pybcli"), "metadata.yaml")
-        sys_meta = os.path.join("/etc/pybcli", "metadata.yaml")
-        home_metadata = {}
-        if os.path.exists(home_meta):
-            with open(home_meta, 'r') as mf:
-                home_metadata = yaml.safe_load(mf) or {}
+        pybcli = Pybcli()
+        home_metadata = pybcli.load_metadata(is_sys=False)
         home_namespaces = list(home_metadata.keys())
         options = [f"home.{ns}" for ns in home_namespaces]
 
-        sys_metadata = {}
-        if os.path.exists(sys_meta):
-            with open(sys_meta, 'r') as mf:
-                sys_metadata = yaml.safe_load(mf) or {}
-
+        sys_metadata = pybcli.load_metadata(is_sys=True)
         sys_namespaces = list(sys_metadata.keys())
+
         # add sys. prefix to sys namespaces
         options += [f"sys.{ns}" for ns in sys_namespaces]
         for ns in home_namespaces + sys_namespaces:
                 return [f for f in options if f.startswith(curr)]
+    elif cmd == 'exec':
+        # Provide completion for exec command
+        if comp_cword == 2:
+            # Provide completion for namespaces
+            pybcli = Pybcli()
+            metadata = pybcli.load_all_metadata()
+            namespaces = list(metadata.keys())
+            return [f for f in namespaces if f.startswith(curr)]
+        elif comp_cword == 3:
+            # Provide completion for files
+            pybcli = Pybcli()
+            namespace = comp_words[2]
+            metadata = pybcli.load_all_metadata()
+            if namespace in metadata:
+                files = list(metadata[namespace].keys())
+                return [f for f in files if f.startswith(curr)]
+        elif comp_cword == 4:
+            # Provide completion for functions
+            pybcli = Pybcli()
+            namespace = comp_words[2]
+            file = comp_words[3]
+            metadata = pybcli.load_all_metadata()
+            if namespace in metadata and file in metadata[namespace]:
+                file_path = metadata[namespace][file]
+                file_metadata = pybcli.scan_bash_file(file_path)
+                if file_metadata:
+                    functions = [f['name'] for f in file_metadata['functions']]
+                    return [f for f in functions if f.startswith(curr)]
+    return []
 
 
 def main():
