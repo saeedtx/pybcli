@@ -1,14 +1,18 @@
 #!/bin/bash
 
 SOME_VAR="Hello"
-#bcli: description This is function_a
 #bcli: export SOME_VAR
+
+#bcli:func description ping something
+#bcli:func args "hostname" -c <count> -i <interval> -w <timeout> ..
 ping_do() {
     echo run the ping $*
     ping $* &
 }
 
-#bcli: description This is function_b
+#bcli:func description say hello
+#nothing here
+#bcli:func args "<something>"
 say_hello() {
     for i in {1..3}; do
 	echo hello $i

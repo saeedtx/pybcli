@@ -4,6 +4,7 @@ import subprocess
 import os
 import yaml
 import argcomplete  # Add import for argcomplete
+import re
 
 class Pybcli:
     def __init__(self, home_dir=None, sys_dir=None):
@@ -89,6 +90,53 @@ class Pybcli:
             print("--- STDERR ---")
             print(stderr)
 
+    def scan_bash_file(self, file_path):
+        # Scan a bash file and extract metadata
+        if not os.path.exists(file_path):
+            print("\nFile doesn't exist. Please run bcli2 purge.")
+            return None
+
+        with open(file_path, 'r') as f:
+            content = f.read()
+
+        # Patterns for global and function-specific annotations
+        global_annotation_re = re.compile(r"#bcli:\s+(\w+)\s+(.*)")
+        function_re = re.compile(r"(?m)^\s*(\w+)\s*\(\s*\)\s*\{")
+        func_annotation_re = re.compile(r"#bcli:func\s+(\w+)\s+(.*)")
+
+        # Extract global annotations
+        global_annotations = {}
+        for match in global_annotation_re.finditer(content):
+            global_annotations[match.group(1)] = match.group(2)
+
+        # Extract function metadata
+        functions = []
+        for match in function_re.finditer(content):
+            name = match.group(1)
+            annotations = {}
+
+            # Find function-specific annotations immediately preceding the function definition
+            func_start_index = match.start()
+            preceding_lines = content[:func_start_index].splitlines()
+            preceding_lines.reverse()
+            for line in preceding_lines:
+                annotation_match = func_annotation_re.match(line)
+                if annotation_match:
+                    annotations[annotation_match.group(1)] = annotation_match.group(2)
+                elif line.strip() != "" and not line.strip().startswith('#'):
+                    # Stop if we hit a non-annotation or non-comment line
+                    break
+
+            functions.append({'name': name, 'annotations': annotations})
+
+        file_metadata = {
+            'file': file_path,
+            'global_annotations': global_annotations,
+            'functions': functions
+        }
+
+        return file_metadata
+
     def handle_info(self):
         # Print the contents of the config YAML files for both home and sys
         for config_dir, name in [(self.home_dir, 'home'), (self.sys_dir, 'sys')]:
@@ -97,7 +145,17 @@ class Pybcli:
             if os.path.exists(metadata_file):
                 with open(metadata_file, 'r') as mf:
                     metadata = yaml.safe_load(mf) or {}
-                    print(yaml.dump(metadata, default_flow_style=False))
+                    #print(yaml.dump(metadata, default_flow_style=False))
+                    for ns, files in metadata.items():
+                        print(f"Namespace: {ns}")
+                        for fname, fpath in files.items():
+                            print(f"  {fname}: {fpath}")
+                            file_metadata = self.scan_bash_file(fpath)
+                            if not file_metadata:
+                                continue
+                            for func in file_metadata['functions']:
+                                description = func['annotations'].get('description') or "No description found."
+                                print(f"    - {func['name'] : <20} {description}")
             else:
                 print("No metadata found.")
 
@@ -211,11 +269,11 @@ def dump_completion_script():
         # return files if import
         [[ $cword -eq 2 ]] && [ "$prev" == "import" ] && {
             COMPREPLY=($(compgen -- "$cur"))
-	    return
-	}
+            return
+        }
         COMPREPLY=($(pybcli complete \"$cword\" \"$prev\" \"$cur\" "${words[@]}"))
     }
-    complete -o default -F _pybcli_completion pybcli
+    complete -o default -F _pybcli_completion pybcli ./pybcli.py pybcli.py
     """
     print(f"{bash_completion_script}")
 
