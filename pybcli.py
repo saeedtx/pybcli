@@ -147,7 +147,7 @@ class Pybcli:
                         continue
                     for func in file_metadata['functions']:
                         description = func['annotations'].get('description') or ""
-                        print(f"    - {func['name'] : <20} {description}")
+                        print(f"    - {func['name'] : <25} {description}")
 
 def arg_complete(comp_cword, prev, curr, comp_words):
     if comp_cword == 1:
