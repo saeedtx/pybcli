@@ -147,15 +147,12 @@ class Pybcli:
             if stderr:
                 print("--- STDERR END ---")
                 print(stderr)
-
-
         finally:
             if process and hasattr(process, 'ssh_control_path__'):
                 # Close the persistent SSH connection
                 close_command = ["ssh", "-O", "exit", "-o", f"ControlPath={process.ssh_control_path__}", remote]
                 print("Closing persistent SSH connection...")
                 subprocess.run(close_command, check=False)
-
 
     def scan_bash_file(self, file_path):
         # Scan a bash file and extract metadata
@@ -193,7 +190,6 @@ class Pybcli:
                 elif line.strip() != "" and not line.strip().startswith('#'):
                     # Stop if we hit a non-annotation or non-comment line
                     break
-
             functions.append({'name': name, 'annotations': annotations})
 
         file_metadata = {
@@ -287,6 +283,38 @@ def arg_complete(comp_cword, prev, curr, comp_words):
                     return [f for f in functions if f.startswith(curr)]
     return []
 
+def install_bash_completion(system_wide=True):
+    bash_completion_script = """
+    _pybcli_completion() {
+        local cur prev words cword
+        _get_comp_words_by_ref -n : cur prev words cword
+        # return files if import
+        [[ $cword -eq 2 ]] && [ "$prev" == "import" ] && {
+            COMPREPLY=($(compgen -- "$cur"))
+            return
+        }
+        [[ $cword -eq 2 ]] && [ "$prev" == "exec" ] && COMPREPLY=( $(compgen -W "--ssh" -- "$cur" ) )
+        [[ $cword -eq 2 ]] && [ "$prev" == "exec" ] && [[ "$cur" == -* ]] && return
+        [[ $cword -eq 3 ]] && [ "$prev" == "--ssh" ] && {
+            COMPREPLY=($(compgen -A hostname -- "$cur"))
+            return
+        }
+        COMPREPLY+=($(pybcli complete \"$cword\" \"$prev\" \"$cur\" "${words[@]}"))
+    }
+    complete -o default -F _pybcli_completion pybcli ./pybcli.py pybcli.py
+    """
+    if system_wide:
+        completion_dir = "/etc/bash_completion.d"
+    else:
+        completion_dir = os.path.expanduser("~/.local/share/bash-completion/completions")
+
+    completion_file = os.path.join(completion_dir, "pybcli")
+    print(f"Creating directory {completion_dir} if it does not exist...")
+    os.makedirs(completion_dir, exist_ok=True)
+    print(f"Writing bash completion script to {completion_file}...")
+    with open(completion_file, 'w') as f:
+        f.write(bash_completion_script)
+    print(f"Bash completion script installed to {completion_file}")
 
 def main():
     pybcli = Pybcli()
@@ -308,8 +336,7 @@ def main():
     exec_parser.add_argument('args', nargs=argparse.REMAINDER, help='Arguments for the function')
 
     # Info subcommand
-    info_parser = subparsers.add_parser('info', help='Display configuration information')
-    info_parser = subparsers.add_parser('write-completion-script', help='Completion script')
+    subparsers.add_parser('info', help='Display configuration information')
 
     # Complete subcommand for custom bash completion
     complete_parser = subparsers.add_parser('complete', help='Provide bash completion')
@@ -317,6 +344,9 @@ def main():
     complete_parser.add_argument('prev', help='Previous word')
     complete_parser.add_argument('curr', help='Current word')
     complete_parser.add_argument('comp_words', nargs=argparse.REMAINDER, help='COMP_WORDS')
+
+    # Install completion script subcommand
+    subparsers.add_parser('install-bash-completion', help='Install bash completion script')
 
     # Enable bash completion
     argcomplete.autocomplete(parser)
@@ -340,33 +370,11 @@ def main():
         completions = arg_complete(args.comp_cword, args.prev, args.curr, args.comp_words)
         for completion in completions:
             print(completion)
-    elif args.command == 'write-completion-script':
-        dump_completion_script()
+    elif args.command == 'install-bash-completion':
+        system_wide = os.geteuid() == 0  # Check if running as root
+        install_bash_completion(system_wide)
     else:
         parser.print_help()
-
-def dump_completion_script():
-    import os
-    bash_completion_script = """
-    _pybcli_completion() {
-        local cur prev words cword
-        _get_comp_words_by_ref -n : cur prev words cword
-        # return files if import
-        [[ $cword -eq 2 ]] && [ "$prev" == "import" ] && {
-            COMPREPLY=($(compgen -- "$cur"))
-            return
-        }
-        [[ $cword -eq 2 ]] && [ "$prev" == "exec" ] && COMPREPLY=( $(compgen -W "--ssh" -- "$cur" ) )
-        [[ $cword -eq 2 ]] && [ "$prev" == "exec" ] && [[ "$cur" == -* ]] && return
-        [[ $cword -eq 3 ]] && [ "$prev" == "--ssh" ] && {
-            COMPREPLY=($(compgen -A hostname -- "$cur"))
-            return
-        }
-        COMPREPLY+=($(pybcli complete \"$cword\" \"$prev\" \"$cur\" "${words[@]}"))
-    }
-    complete -o default -F _pybcli_completion pybcli ./pybcli.py pybcli.py
-    """
-    print(f"{bash_completion_script}")
 
 if __name__ == "__main__":
     main()
