@@ -167,6 +167,13 @@ class TestPybcli(unittest.TestCase):
         # TODO this assert shouldn't fail due to -e, but it does
         #self.assertNotIn("I shall not run", output)
 
+    def test_exec_with_includes(self):
+        rc, output = self._test_exec(False, None, "test_includes.sh", "run_test")
+        self.assertEqual(rc, 0)
+        self.assertIn("function1 here", output)
+        self.assertIn("function2 here", output)
+        self.assertIn("I shall pass with", output)
+
 if __name__ == "__main__":
     tracemalloc.start()
     unittest.main(verbosity=2)

@@ -86,7 +86,8 @@ class Pybcli:
         print(f"Executing '{file}'->'{func}' {args}")
         command = f"source {file} && {func} {' '.join(args)} && wait"
         print(f"Executing command: {command}")
-        return subprocess.Popen(["bash", "-c", command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        file_dir = os.path.dirname(file)
+        return subprocess.Popen(["bash", "-c", command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=file_dir)
 
     def ssh_popen(self, remote, file, func, *args):
         # Open a persistent SSH connection using ControlMaster
