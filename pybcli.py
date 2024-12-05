@@ -63,6 +63,18 @@ class Pybcli:
             print("--- STDERR ---")
             print(stderr)
 
+    def handle_info(self):
+        # Print the contents of the config YAML files for both home and sys
+        for config_dir, name in [(self.home_dir, 'home'), (self.sys_dir, 'sys')]:
+            metadata_file = os.path.join(config_dir, "metadata.yaml")
+            print(f"--- {name.upper()} CONFIG ---")
+            if os.path.exists(metadata_file):
+                with open(metadata_file, 'r') as mf:
+                    metadata = yaml.safe_load(mf) or {}
+                    print(yaml.dump(metadata, default_flow_style=False))
+            else:
+                print("No metadata found.")
+
 
 def main():
     pybcli = Pybcli()
@@ -82,12 +94,17 @@ def main():
     exec_parser.add_argument('func', help='The function to execute')
     exec_parser.add_argument('args', nargs=argparse.REMAINDER, help='Arguments for the function')
 
+    # Info subcommand
+    info_parser = subparsers.add_parser('info', help='Display configuration information')
+
     args = parser.parse_args()
 
     if args.command == 'import':
         pybcli.handle_import(args.file, args.location, args.namespace)
     elif args.command == 'exec':
         pybcli.handle_exec(args.namespace, args.file, args.func, *args.args)
+    elif args.command == 'info':
+        pybcli.handle_info()
     else:
         parser.print_help()
 
