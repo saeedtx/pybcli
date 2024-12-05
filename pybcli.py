@@ -55,38 +55,96 @@ class Pybcli:
                 home_metadata[ns] = files
         return home_metadata
 
-    def handle_exec(self, namespace, fname, func, *args):
-        # Use default namespace if not provided
-        namespace = namespace or "default"
-
-        # Load metadata from home and sys directories
+    def resolve_file(self, namespace, fname):
         metadata = self.load_all_metadata()
-
         if namespace not in metadata or fname not in metadata[namespace]:
             raise FileNotFoundError(f"File '{fname}' not found in namespace '{namespace}'")
+        return metadata[namespace][fname]
 
-        # Get the full path of the file
-        file_path = metadata[namespace][fname]
-
+    def bash_popen(self, file,func, *args):
         # Execute the function from the file
-        print(f"Executing '{func}' from file '{file_path}' in namespace '{namespace}' with arguments {args}")
-        remote_command = f"source {file_path} && {func} {' '.join(args)}"
+        print(f"Executing '{file}'->'{func}' {args}")
+        command = f"source {file} && {func} {' '.join(args)} && wait"
+        print(f"Executing command: {command}")
+        return subprocess.Popen(["bash", "-c", command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    def ssh_popen(self, remote, file, func, *args):
+        # Open a persistent SSH connection using ControlMaster
+        ssh_control_path = f"/tmp/ssh_control_{remote.replace('@', '_')}"
+        ssh_command = [
+            "ssh", "-MNf", "-o", f"ControlPath={ssh_control_path}", "-o", "ControlMaster=yes", remote
+        ]
+        print(f"Opening persistent SSH connection to {remote}...")
+        subprocess.run(ssh_command, check=True)
+
+        # Send the bash file using SCP via the persistent connection
+        remote_file = os.path.basename(file)
+        scp_command = [
+            "scp", "-o", f"ControlPath={ssh_control_path}", file, f"{remote}:{remote_file}"
+        ]
+        print(f"Transferring {file} to {remote}...")
+        subprocess.run(scp_command, check=True)
+
+        # Execute the function via the persistent SSH connection
+        remote_command = f"bash -c 'source {remote_file} && {func} {' '.join(args)}' && wait"
+        exec_command = [
+            "ssh", "-o", f"ControlPath={ssh_control_path}", remote, remote_command
+        ]
         print(f"Executing command: {remote_command}")
-        process = subprocess.Popen(["bash", "-c", remote_command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        return subprocess.Popen(exec_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-        # Stream the output and errors while the command is running
-        while True:
-            output = process.stdout.readline()
-            if output == "" and process.poll() is not None:
-                break
-            if output:
-                print(output, end="")
+    def handle_exec(self, remote, namespace, fname, func, *args):
+        namespace = namespace or "default"
+        file = self.resolve_file(namespace, fname)
+        process = None
+        try:
+            if remote:
+                process = self.ssh_popen(remote, file, func, *args)
+            else:
+                process = self.bash_popen(file, func, *args)
+            # Stream the output and errors while the command is running
+            while True:
+                output = process.stdout.readline()
+                if output == "" and process.poll() is not None:
+                    break
+                if output:
+                    print(output, end="")
 
-        # Print any remaining errors
-        stderr = process.stderr.read()
-        if stderr:
-            print("--- STDERR ---")
-            print(stderr)
+            # Print any remaining errors
+            stderr = process.stderr.read()
+            if stderr:
+                print("--- STDERR ---")
+                print(stderr)
+            print(f"Command execution complete with return code: {process.poll()}")
+        except subprocess.CalledProcessError as e:
+            print(f"Command error: {e}")
+        except FileNotFoundError:
+            print(f"Error: File {file} not found")
+        except KeyboardInterrupt:
+            print("Execution interrupted")
+            if not process:
+                return
+            process.kill()
+            process.wait()
+            print(f"Command execution complete with return code: {process.returncode}")
+            stdout = process.stdout.read()
+            if stdout:
+                print("--- STDOUT END ---")
+                print(stdout)
+            stderr = process.stderr.read()
+            if stderr:
+                print("--- STDERR END ---")
+                print(stderr)
+
+
+        finally:
+            pass
+            # TODO: Is it a problem to not close the connection?
+            # Close the persistent SSH connection
+            #close_command = ["ssh", "-O", "exit", "-o", f"ControlPath={ssh_control_path}", remote]
+            #print("Closing persistent SSH connection...")
+            #subprocess.run(close_command, check=False)
+
 
     def scan_bash_file(self, file_path):
         # Scan a bash file and extract metadata
@@ -179,6 +237,16 @@ def arg_complete(comp_cword, prev, curr, comp_words):
         for ns in home_namespaces + sys_namespaces:
                 return [f for f in options if f.startswith(curr)]
     elif cmd == 'exec':
+        # remove --ssh server from comp_words
+        # find the index of --ssh
+        if '--ssh' in comp_words:
+            ssh_index = comp_words.index('--ssh')
+            comp_words.pop(ssh_index)  # Remove '--ssh'
+            comp_cword -= 1
+            if ssh_index < len(comp_words):
+                comp_words.pop(ssh_index)  # Remove the word after '--ssh'
+                comp_cword -= 1
+
         # Provide completion for exec command
         if comp_cword == 2:
             # Provide completion for namespaces
@@ -221,6 +289,8 @@ def main():
 
     # Exec subcommand
     exec_parser = subparsers.add_parser('exec', help='Execute a function from a file in a namespace')
+
+    exec_parser.add_argument('--ssh', help='Execute the function over SSH')
     exec_parser.add_argument('namespace', help='The namespace of the file')
     exec_parser.add_argument('file', help='The file containing the function')
     exec_parser.add_argument('func', help='The function to execute')
@@ -250,7 +320,7 @@ def main():
         print(f"location: {location}, namespace: {args.namespace}")
         pybcli.handle_import(args.file, location, args.namespace)
     elif args.command == 'exec':
-        pybcli.handle_exec(args.namespace, args.file, args.func, *args.args)
+        pybcli.handle_exec(args.ssh, args.namespace, args.file, args.func, *args.args)
     elif args.command == 'info':
         pybcli.handle_info()
     elif args.command == 'complete':
@@ -273,7 +343,13 @@ def dump_completion_script():
             COMPREPLY=($(compgen -- "$cur"))
             return
         }
-        COMPREPLY=($(pybcli complete \"$cword\" \"$prev\" \"$cur\" "${words[@]}"))
+        [[ $cword -eq 2 ]] && [ "$prev" == "exec" ] && COMPREPLY=( $(compgen -W "--ssh" -- "$cur" ) )
+        [[ $cword -eq 2 ]] && [ "$prev" == "exec" ] && [[ "$cur" == -* ]] && return
+        [[ $cword -eq 3 ]] && [ "$prev" == "--ssh" ] && {
+            COMPREPLY=($(compgen -A hostname -- "$cur"))
+            return
+        }
+        COMPREPLY+=($(pybcli complete \"$cword\" \"$prev\" \"$cur\" "${words[@]}"))
     }
     complete -o default -F _pybcli_completion pybcli ./pybcli.py pybcli.py
     """
