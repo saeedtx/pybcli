@@ -9,7 +9,7 @@ setup(
     packages=find_packages(),
     entry_points={
         'console_scripts': [
-            'pybcli=pybcli.cli:main',  # You can change 'pybcli' to the desired executable name later
+            'pybcli=pybcli.pybcli:main',  # Correctly reference the main function in pybcli.py
         ],
     },
 )
