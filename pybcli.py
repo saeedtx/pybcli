@@ -20,11 +20,10 @@ class Pybcli:
         os.makedirs(namespace_dir, exist_ok=True)
 
         # Copy the file into the namespace directory
-        target_path = os.path.join(namespace_dir, os.path.basename(file))
-        with open(file, 'r') as src_file:
-            with open(target_path, 'w') as dest_file:
-                dest_file.write(src_file.read())
-        print(f"File '{file}' has been successfully imported into namespace '{namespace}' at '{target_path}'")
+        #target_path = os.path.join(namespace_dir, os.path.basename(file))
+        #with open(file, 'r') as src_file:
+        #    with open(target_path, 'w') as dest_file:
+        #        dest_file.write(src_file.read())
 
         # Update metadata
         metadata_file = os.path.join(base_dir, "metadata.yaml")
@@ -34,9 +33,10 @@ class Pybcli:
                 metadata = yaml.safe_load(mf) or {}
 
         if namespace not in metadata:
-            metadata[namespace] = []
-        if os.path.basename(file) not in metadata[namespace]:
-            metadata[namespace].append(os.path.basename(file))
+            metadata[namespace] = {}
+        fname = os.path.splitext(os.path.basename(file))[0]
+        metadata[namespace][fname] = os.path.abspath(file)
+        print(f"File '{os.path.abspath(file)}' has been successfully imported into namespace '{namespace}/{fname}'")
 
         with open(metadata_file, 'w') as mf:
             yaml.safe_dump(metadata, mf)

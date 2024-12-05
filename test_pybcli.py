@@ -12,7 +12,7 @@ class TestPybcli(unittest.TestCase):
         # Create temporary directories for testing
         cls.temp_home_dir = tempfile.mkdtemp()
         cls.temp_sys_dir = tempfile.mkdtemp()
-        
+
         # Initialize Pybcli instance and configure it to use the temporary directories
         cls.pybcli = Pybcli()
         cls.pybcli.set_config_dirs(cls.temp_home_dir, cls.temp_sys_dir)
@@ -29,20 +29,20 @@ class TestPybcli(unittest.TestCase):
 
         try:
             self.pybcli.handle_import(test_file, "home", "default")
-            target_path = os.path.join(self.pybcli.home_dir, "default", os.path.basename(test_file))
-            self.assertTrue(os.path.exists(target_path))
+            self.assertTrue(os.path.exists(self.pybcli.home_dir))
 
             # Check metadata
             metadata_file = os.path.join(self.pybcli.home_dir, "metadata.yaml")
             with open(metadata_file, "r") as mf:
                 metadata = yaml.safe_load(mf)
                 self.assertIsInstance(metadata, dict)
-                self.assertIn("default", metadata)
-                self.assertIn(os.path.basename(test_file), metadata["default"])
+                namespace = "default"
+                self.assertIn(namespace, metadata)
+                fname = os.path.splitext(os.path.basename(test_file))[0]
+                self.assertIn(fname, metadata[namespace])
+                self.assertEqual(metadata[namespace][fname], os.path.abspath(test_file))
         finally:
-            # Cleanup the imported file
-            if os.path.exists(target_path):
-                os.remove(target_path)
+            pass
 
     def test_import_sys_custom_namespace(self):
         # Test importing a file into the sys location with a custom namespace
@@ -51,8 +51,7 @@ class TestPybcli(unittest.TestCase):
 
         try:
             self.pybcli.handle_import(test_file, "sys", namespace)
-            target_path = os.path.join(self.pybcli.sys_dir, namespace, os.path.basename(test_file))
-            self.assertTrue(os.path.exists(target_path))
+            self.assertTrue(os.path.exists(self.pybcli.sys_dir))
 
             # Check metadata
             metadata_file = os.path.join(self.pybcli.sys_dir, "metadata.yaml")
@@ -60,11 +59,11 @@ class TestPybcli(unittest.TestCase):
                 metadata = yaml.safe_load(mf)
                 self.assertIsInstance(metadata, dict)
                 self.assertIn(namespace, metadata)
-                self.assertIn(os.path.basename(test_file), metadata[namespace])
+                fname = os.path.splitext(os.path.basename(test_file))[0]
+                self.assertIn(fname, metadata[namespace])
+                self.assertEqual(metadata[namespace][fname], os.path.abspath(test_file))
         finally:
-            # Cleanup the imported file
-            if os.path.exists(target_path):
-                os.remove(target_path)
+            pass
 
     def test_exec_function(self):
         # Test executing a function from a file
@@ -74,7 +73,7 @@ class TestPybcli(unittest.TestCase):
 
         try:
             self.pybcli.handle_import(test_file, "home", namespace)
-            self.pybcli.handle_exec(namespace, test_file, func_name, "localhost -c 3")
+            self.pybcli.handle_exec(namespace, test_file, func_name, "localhost -c 2")
         finally:
             # Cleanup the imported file
             target_path = os.path.join(self.pybcli.home_dir, namespace, os.path.basename(test_file))
