@@ -99,16 +99,45 @@ class Pybcli:
         print(f"Opening persistent SSH connection to {remote}: {ssh_control_path}...")
         subprocess.run(ssh_command, check=True)
 
-        # Send the bash file using SCP via the persistent connection
-        remote_file = os.path.basename(file)
+        # Create a temporary directory on the remote machine
+        remote_temp_dir = f"/tmp/{fname}_{func}_{remote.replace('@', '_')}"
+        ssh_mkdir_command = [
+            "ssh", "-o", f"ControlPath={ssh_control_path}", remote, f"mkdir -p {remote_temp_dir}"
+        ]
+        print(f"Creating temporary directory {remote_temp_dir} on {remote}...")
+        subprocess.run(ssh_mkdir_command, check=True)
+
+        # Send the bash file and its includes using SCP via the persistent connection
+        remote_file = os.path.join(remote_temp_dir, os.path.basename(file))
         scp_command = [
             "scp", "-o", f"ControlPath={ssh_control_path}", file, f"{remote}:{remote_file}"
         ]
-        print(f"Transferring {file} to {remote}...")
+        print(f"Transferring {file} to {remote}:{remote_file}...")
         subprocess.run(scp_command, check=True)
 
+        # Scan the file for includes and transfer them as well
+        file_metadata = self.scan_bash_file(file)
+        for include in file_metadata['includes']:
+            include_file = include['full_path']
+            include_path = include['include_line'].split()[1]  # Extract the include path
+            relative_include_dir = os.path.dirname(include_path)
+            remote_include_dir = os.path.join(remote_temp_dir, relative_include_dir)
+            remote_include_file = os.path.join(remote_include_dir, os.path.basename(include_file))
+            # Create the directory structure on the remote machine
+            ssh_mkdir_command = [
+                "ssh", "-o", f"ControlPath={ssh_control_path}", remote, f"mkdir -p {remote_include_dir}"
+            ]
+            print(f"Creating directory {remote_include_dir} on {remote}...")
+            subprocess.run(ssh_mkdir_command, check=True)
+            # Transfer the include file
+            scp_command = [
+                "scp", "-o", f"ControlPath={ssh_control_path}", include_file, f"{remote}:{remote_include_file}"
+            ]
+            print(f"Transferring {include_file} to {remote}:{remote_include_file}...")
+            subprocess.run(scp_command, check=True)
+
         # Execute the function via the persistent SSH connection
-        remote_command = f"bash -c 'source {remote_file} && {func} {' '.join(args)}' && wait"
+        remote_command = f"bash -c 'cd {remote_temp_dir} && source {os.path.basename(file)} && {func} {' '.join(args)}' && wait"
         exec_command = [
             "ssh", "-o", f"ControlPath={ssh_control_path}", remote, remote_command
         ]
