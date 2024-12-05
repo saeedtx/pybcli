@@ -6,6 +6,7 @@ import yaml
 import argcomplete  # Add import for argcomplete
 import re
 import tempfile
+import json
 
 class Pybcli:
     def __init__(self, home_dir=None, sys_dir=None):
@@ -186,6 +187,7 @@ class Pybcli:
         global_annotation_re = re.compile(r"#bcli:\s+(\w+)\s+(.*)")
         function_re = re.compile(r"(?m)^\s*(\w+)\s*\(\s*\)\s*\{")
         func_annotation_re = re.compile(r"#bcli:func\s+(\w+)\s+(.*)")
+        include_re = re.compile(r"^\s*(?:\.|source)\s+([^\s;]+)", re.MULTILINE)
 
         # Extract global annotations
         global_annotations = {}
@@ -193,7 +195,6 @@ class Pybcli:
             global_annotations[match.group(1)] = match.group(2)
 
         # Extract function metadata
-        # TODO: dict ?
         functions = []
         for match in function_re.finditer(content):
             name = match.group(1)
@@ -212,30 +213,47 @@ class Pybcli:
                     break
             functions.append({'name': name, 'annotations': annotations})
 
+        # Extract includes
+        includes = []
+        for match in include_re.finditer(content):
+            include_line = match.group(0).strip().split(';')[0]  # Capture only the include statement
+            include_path = match.group(1)
+            full_path = os.path.abspath(os.path.join(os.path.dirname(file_path), include_path))
+            includes.append({
+                'line_number': content[:match.start()].count('\n') + 1,
+                'include_line': include_line,
+                'full_path': full_path
+            })
+
         file_metadata = {
             'file': file_path,
             'global_annotations': global_annotations,
-            'functions': functions
+            'functions': functions,
+            'includes': includes
         }
 
         return file_metadata
 
-    def handle_info(self):
+    def handle_info(self, verbosity=1):
         # Print the contents of the config YAML files for both home and sys
         for name in ['home', 'sys']:
             metadata = self.load_metadata(is_sys=(name == 'sys'))
             print(f"--- {name.upper()} CONFIG ---")
-            #print(yaml.dump(metadata, default_flow_style=False))
             for ns, files in metadata.items():
                 print(f"Namespace: {ns}")
                 for fname, fpath in files.items():
                     print(f"  {fname}: {fpath}")
-                    file_metadata = self.scan_bash_file(fpath)
-                    if not file_metadata:
-                        continue
-                    for func in file_metadata['functions']:
-                        description = func['annotations'].get('description') or ""
-                        print(f"    - {func['name'] : <25} {description}")
+                    if verbosity >= 2:
+                        file_metadata = self.scan_bash_file(fpath)
+                        if not file_metadata:
+                            continue
+                        if verbosity == 2:
+                            for func in file_metadata['functions']:
+                                description = func['annotations'].get('description') or ""
+                                print(f"    - {func['name'] : <25} {description}")
+                        elif verbosity >= 3:
+                            print("    Metadata:")
+                            print(json.dumps(file_metadata, indent=4))
 
 def arg_complete(comp_cword, prev, curr, comp_words):
     if comp_cword == 1:
@@ -356,7 +374,8 @@ def main():
     exec_parser.add_argument('args', nargs=argparse.REMAINDER, help='Arguments for the function')
 
     # Info subcommand
-    subparsers.add_parser('info', help='Display configuration information')
+    info_parser = subparsers.add_parser('info', help='Display configuration information')
+    info_parser.add_argument('-v', '--verbose', action='count', default=0, help='Increase verbosity level')
 
     # Complete subcommand for custom bash completion
     complete_parser = subparsers.add_parser('complete', help='Provide bash completion')
@@ -385,7 +404,7 @@ def main():
     elif args.command == 'exec':
         pybcli.handle_exec(args.ssh, args.namespace, args.file, args.func, *args.args)
     elif args.command == 'info':
-        pybcli.handle_info()
+        pybcli.handle_info(args.verbose)
     elif args.command == 'complete':
         completions = arg_complete(args.comp_cword, args.prev, args.curr, args.comp_words)
         for completion in completions:

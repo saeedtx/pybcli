@@ -104,6 +104,25 @@ class TestPybcli(unittest.TestCase):
     def test_scan_bash_file(self):
         self._test_scan_file_funcs("simple.sh", ["function1", "function2", "main"])
 
+    def test_scan_bash_file_includes(self):
+        test_file = f"{self.BASH_SCRIPTS_DIR}/test_includes.sh"
+        fmeta = self.pybcli.scan_bash_file(test_file)
+        self.assertIsInstance(fmeta, dict)
+        self.assertIn("includes", fmeta)
+        expected_includes = [
+            {
+                'line_number': 1,
+                'include_line': '. ./simple.sh',
+                'full_path': os.path.abspath(os.path.join(self.BASH_SCRIPTS_DIR, 'simple.sh'))
+            },
+            {
+                'line_number': 2,
+                'include_line': 'source ./moderate.sh',
+                'full_path': os.path.abspath(os.path.join(self.BASH_SCRIPTS_DIR, 'moderate.sh'))
+            }
+        ]
+        self.assertEqual(fmeta["includes"], expected_includes)
+
     def _test_exec(self, is_sys, namespace, bash_file, func_name, *args):
         test_file = f"{self.BASH_SCRIPTS_DIR}/{bash_file}"
         fname = os.path.splitext(os.path.basename(test_file))[0]
