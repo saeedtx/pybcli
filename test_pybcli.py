@@ -14,8 +14,7 @@ class TestPybcli(unittest.TestCase):
         cls.temp_sys_dir = tempfile.mkdtemp()
 
         # Initialize Pybcli instance and configure it to use the temporary directories
-        cls.pybcli = Pybcli()
-        cls.pybcli.set_config_dirs(cls.temp_home_dir, cls.temp_sys_dir)
+        cls.pybcli = Pybcli(cls.temp_home_dir, cls.temp_sys_dir)
 
     @classmethod
     def tearDownClass(cls):

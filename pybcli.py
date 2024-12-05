@@ -10,10 +10,8 @@ class Pybcli:
     def __init__(self, home_dir=None, sys_dir=None):
         self.home_dir = home_dir or os.path.expanduser("~/.pybcli")
         self.sys_dir = sys_dir or "/etc/pybcli"
-
-    def set_config_dirs(self, home_dir, sys_dir):
-        self.home_dir = home_dir
-        self.sys_dir = sys_dir
+        self.home_metadata_file = os.path.join(self.home_dir, "metadata.yaml")
+        self.sys_metadata_file = os.path.join(self.sys_dir, "metadata.yaml")
 
     def handle_import(self, file, location, namespace):
         # Determine the base directory based on location
@@ -22,7 +20,7 @@ class Pybcli:
         os.makedirs(namespace_dir, exist_ok=True)
 
         # Update metadata
-        metadata_file = os.path.join(base_dir, "metadata.yaml")
+        metadata_file = self.sys_metadata_file if location == "sys" else self.home_metadata_file
         metadata = {}
         if os.path.exists(metadata_file):
             with open(metadata_file, 'r') as mf:
@@ -38,31 +36,28 @@ class Pybcli:
             yaml.safe_dump(metadata, mf)
         print(f"Metadata updated for namespace '{namespace}' at '{metadata_file}'")
 
+    def load_metadata(self, is_sys = False):
+        metadata_file = self.sys_metadata_file if is_sys else self.home_metadata_file
+        metadata = {}
+        if os.path.exists(metadata_file):
+            with open(metadata_file, 'r') as mf:
+                metadata = yaml.safe_load(mf) or {}
+        return metadata
+
     def handle_exec(self, namespace, fname, func, *args):
         # Use default namespace if not provided
         namespace = namespace or "default"
 
         # Load metadata from home and sys directories
-        home_metadata_file = os.path.join(self.home_dir, "metadata.yaml")
-        sys_metadata_file = os.path.join(self.sys_dir, "metadata.yaml")
+        metadata = self.load_metadata(is_sys=False) # home metadata
+        sys_metadata = self.load_metadata(is_sys=True) # sys metadata
 
-        metadata = {}
-
-        # Load home metadata first
-        if os.path.exists(home_metadata_file):
-            with open(home_metadata_file, 'r') as mf:
-                home_metadata = yaml.safe_load(mf) or {}
-                metadata.update(home_metadata)
-
-        # Load sys metadata and merge it
-        if os.path.exists(sys_metadata_file):
-            with open(sys_metadata_file, 'r') as mf:
-                sys_metadata = yaml.safe_load(mf) or {}
-                for ns, files in sys_metadata.items():
-                    if ns in metadata:
-                        metadata[ns].update(files)
-                    else:
-                        metadata[ns] = files
+        # Load sys metadata and merge it with home metadata
+        for ns, files in sys_metadata.items():
+            if ns in metadata:
+                metadata[ns].update(files)
+            else:
+                metadata[ns] = files
 
         if namespace not in metadata or fname not in metadata[namespace]:
             raise FileNotFoundError(f"File '{fname}' not found in namespace '{namespace}'")
@@ -139,31 +134,20 @@ class Pybcli:
 
     def handle_info(self):
         # Print the contents of the config YAML files for both home and sys
-        for config_dir, name in [(self.home_dir, 'home'), (self.sys_dir, 'sys')]:
-            metadata_file = os.path.join(config_dir, "metadata.yaml")
+        for name in ['home', 'sys']:
+            metadata = self.load_metadata(is_sys=(name == 'sys'))
             print(f"--- {name.upper()} CONFIG ---")
-            if os.path.exists(metadata_file):
-                with open(metadata_file, 'r') as mf:
-                    metadata = yaml.safe_load(mf) or {}
-                    #print(yaml.dump(metadata, default_flow_style=False))
-                    for ns, files in metadata.items():
-                        print(f"Namespace: {ns}")
-                        for fname, fpath in files.items():
-                            print(f"  {fname}: {fpath}")
-                            file_metadata = self.scan_bash_file(fpath)
-                            if not file_metadata:
-                                continue
-                            for func in file_metadata['functions']:
-                                description = func['annotations'].get('description') or "No description found."
-                                print(f"    - {func['name'] : <20} {description}")
-            else:
-                print("No metadata found.")
-
-
-def complete_import(prefix, parsed_args, **kwargs):
-    # Provide completion for import command
-    import os
-    return [f for f in os.listdir('.') if f.startswith(prefix)]
+            #print(yaml.dump(metadata, default_flow_style=False))
+            for ns, files in metadata.items():
+                print(f"Namespace: {ns}")
+                for fname, fpath in files.items():
+                    print(f"  {fname}: {fpath}")
+                    file_metadata = self.scan_bash_file(fpath)
+                    if not file_metadata:
+                        continue
+                    for func in file_metadata['functions']:
+                        description = func['annotations'].get('description') or ""
+                        print(f"    - {func['name'] : <20} {description}")
 
 def arg_complete(comp_cword, prev, curr, comp_words):
     if comp_cword == 1:
@@ -199,12 +183,6 @@ def arg_complete(comp_cword, prev, curr, comp_words):
         for ns in home_namespaces + sys_namespaces:
                 return [f for f in options if f.startswith(curr)]
 
-    elif prev == 'exec':
-        # Provide completion for exec command
-        # Here you can add logic to complete namespaces, files, or functions
-        return ['namespace1', 'namespace2', 'namespace3']
-    else:
-        return []
 
 def main():
     pybcli = Pybcli()
@@ -213,7 +191,7 @@ def main():
 
     # Import subcommand
     import_parser = subparsers.add_parser('import', help='Import a file into a namespace')
-    import_parser.add_argument('file', help='The file to import').completer = complete_import
+    import_parser.add_argument('file', help='The file to import')
     import_parser.add_argument('namespace', nargs='?', default='default', help='The namespace to import the file into')
 
     # Exec subcommand
@@ -226,7 +204,6 @@ def main():
     # Info subcommand
     info_parser = subparsers.add_parser('info', help='Display configuration information')
     info_parser = subparsers.add_parser('write-completion-script', help='Completion script')
-
 
     # Complete subcommand for custom bash completion
     complete_parser = subparsers.add_parser('complete', help='Provide bash completion')
