@@ -5,6 +5,7 @@ import os
 import yaml
 import argcomplete  # Add import for argcomplete
 import re
+import tempfile
 
 class Pybcli:
     def __init__(self, home_dir=None, sys_dir=None):
@@ -13,24 +14,32 @@ class Pybcli:
         self.home_metadata_file = os.path.join(self.home_dir, "metadata.yaml")
         self.sys_metadata_file = os.path.join(self.sys_dir, "metadata.yaml")
 
-    def handle_import(self, file, location, namespace):
+    def handle_import(self, path, location, namespace):
         # Determine the base directory based on location
-        base_dir = self.sys_dir if location == "sys" else self.home_dir
-        namespace_dir = os.path.join(base_dir, namespace)
-        os.makedirs(namespace_dir, exist_ok=True)
+        conf_dir = self.sys_dir if location == "sys" else self.home_dir
+        os.makedirs(conf_dir, exist_ok=True)
 
         # Update metadata
         metadata_file = self.sys_metadata_file if location == "sys" else self.home_metadata_file
-        metadata = {}
-        if os.path.exists(metadata_file):
-            with open(metadata_file, 'r') as mf:
-                metadata = yaml.safe_load(mf) or {}
+        metadata = self.load_metadata(is_sys=(location == "sys"))
 
         if namespace not in metadata:
             metadata[namespace] = {}
-        fname = os.path.splitext(os.path.basename(file))[0]
-        metadata[namespace][fname] = os.path.abspath(file)
-        print(f"File '{os.path.abspath(file)}' has been successfully imported into namespace '{namespace}/{fname}'")
+
+        if os.path.isdir(path):
+            # Import all bash files in the directory
+            for root, _, files in os.walk(path):
+                for file in files:
+                    if file.endswith(".sh"):
+                        file_path = os.path.join(root, file)
+                        fname = os.path.splitext(os.path.basename(file_path))[0]
+                        metadata[namespace][fname] = os.path.abspath(file_path)
+                        print(f"File '{os.path.abspath(file_path)}' has been successfully imported into namespace '{namespace}/{fname}'")
+        else:
+            # Import a single file
+            fname = os.path.splitext(os.path.basename(path))[0]
+            metadata[namespace][fname] = os.path.abspath(path)
+            print(f"File '{os.path.abspath(path)}' has been successfully imported into namespace '{namespace}/{fname}'")
 
         with open(metadata_file, 'w') as mf:
             yaml.safe_dump(metadata, mf)
@@ -70,11 +79,12 @@ class Pybcli:
 
     def ssh_popen(self, remote, file, func, *args):
         # Open a persistent SSH connection using ControlMaster
-        ssh_control_path = f"/tmp/ssh_control_{remote.replace('@', '_')}"
+        fname = os.path.splitext(os.path.basename(file))[0]
+        ssh_control_path = tempfile.mktemp(prefix=f"bcli_ssh_control_{fname}_{func}_{remote.replace('@', '_')}-")
         ssh_command = [
             "ssh", "-MNf", "-o", f"ControlPath={ssh_control_path}", "-o", "ControlMaster=yes", remote
         ]
-        print(f"Opening persistent SSH connection to {remote}...")
+        print(f"Opening persistent SSH connection to {remote}: {ssh_control_path}...")
         subprocess.run(ssh_command, check=True)
 
         # Send the bash file using SCP via the persistent connection
@@ -91,7 +101,9 @@ class Pybcli:
             "ssh", "-o", f"ControlPath={ssh_control_path}", remote, remote_command
         ]
         print(f"Executing command: {remote_command}")
-        return subprocess.Popen(exec_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen(exec_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process.ssh_control_path__ = ssh_control_path
+        return process
 
     def handle_exec(self, remote, namespace, fname, func, *args):
         namespace = namespace or "default"
@@ -138,12 +150,11 @@ class Pybcli:
 
 
         finally:
-            pass
-            # TODO: Is it a problem to not close the connection?
-            # Close the persistent SSH connection
-            #close_command = ["ssh", "-O", "exit", "-o", f"ControlPath={ssh_control_path}", remote]
-            #print("Closing persistent SSH connection...")
-            #subprocess.run(close_command, check=False)
+            if process and hasattr(process, 'ssh_control_path__'):
+                # Close the persistent SSH connection
+                close_command = ["ssh", "-O", "exit", "-o", f"ControlPath={process.ssh_control_path__}", remote]
+                print("Closing persistent SSH connection...")
+                subprocess.run(close_command, check=False)
 
 
     def scan_bash_file(self, file_path):
@@ -283,9 +294,9 @@ def main():
     subparsers = parser.add_subparsers(dest='command')
 
     # Import subcommand
-    import_parser = subparsers.add_parser('import', help='Import a file into a namespace')
-    import_parser.add_argument('file', help='The file to import')
-    import_parser.add_argument('namespace', nargs='?', default='default', help='The namespace to import the file into')
+    import_parser = subparsers.add_parser('import', help='Import a file or directory into a namespace')
+    import_parser.add_argument('path', help='The file or directory to import')
+    import_parser.add_argument('namespace', nargs='?', help='The namespace to import the file or directory into')
 
     # Exec subcommand
     exec_parser = subparsers.add_parser('exec', help='Execute a function from a file in a namespace')
@@ -314,11 +325,13 @@ def main():
 
     if args.command == 'import':
         location = 'home'
-        if '.' in args.namespace:
+        if args.namespace and '.' in args.namespace:
             location = args.namespace.split('.')[0]
             args.namespace = args.namespace.split('.')[1]
+        elif not args.namespace:
+            args.namespace = os.path.basename(os.path.normpath(args.path))
         print(f"location: {location}, namespace: {args.namespace}")
-        pybcli.handle_import(args.file, location, args.namespace)
+        pybcli.handle_import(args.path, location, args.namespace)
     elif args.command == 'exec':
         pybcli.handle_exec(args.ssh, args.namespace, args.file, args.func, *args.args)
     elif args.command == 'info':
