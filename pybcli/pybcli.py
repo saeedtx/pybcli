@@ -7,6 +7,7 @@ import argcomplete  # Add import for argcomplete
 import re
 import tempfile
 import json
+import traceback
 
 class Pybcli:
     def __init__(self, home_dir=None, sys_dir=None):
@@ -89,6 +90,35 @@ class Pybcli:
         file_dir = os.path.dirname(file)
         return subprocess.Popen(["bash", "-c", command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=file_dir)
 
+    def resolve_includes(self, main_file, file_path, seen_files=None):
+        if seen_files is None:
+            seen_files = set()
+        print(f"Resolving includes in {file_path}")
+        try:
+            with open(file_path, 'r') as f:
+                content = f.read()
+        except FileNotFoundError:
+            print(f"Error: File {file_path} not found")
+            return []
+
+        include_re = re.compile(r"^\s*(?:\.|source)\s+([^\s;]+)", re.MULTILINE)
+        includes = []
+        for match in include_re.finditer(content):
+            include_line = match.group(0).strip().split(';')[0]  # Capture only the include statement
+            include_path = match.group(1)
+            full_path = os.path.abspath(os.path.join(os.path.dirname(main_file), include_path))
+            if full_path not in seen_files:
+                seen_files.add(full_path)
+                includes.append({
+                    'line_number': content[:match.start()].count('\n') + 1,
+                    'include_line': include_line,
+                    'include_path': include_path,
+                    'full_path': full_path
+                })
+                # Recursively resolve includes in the included file
+                includes.extend(self.resolve_includes(main_file, full_path, seen_files))
+        return includes
+
     def ssh_popen(self, remote, file, func, *args):
         # Open a persistent SSH connection using ControlMaster
         fname = os.path.splitext(os.path.basename(file))[0]
@@ -116,10 +146,12 @@ class Pybcli:
         subprocess.run(scp_command, check=True)
 
         # Scan the file for includes and transfer them as well
-        file_metadata = self.scan_bash_file(file)
-        for include in file_metadata['includes']:
+        print(f"Resolving includes for {file}...")
+        includes = self.resolve_includes(file, file)
+        print(f"Resolved  includes for {file}...")
+        for include in includes:
             include_file = include['full_path']
-            include_path = include['include_line'].split()[1]  # Extract the include path
+            include_path = include['include_path']
             relative_include_dir = os.path.dirname(include_path)
             remote_include_dir = os.path.join(remote_temp_dir, relative_include_dir)
             remote_include_file = os.path.join(remote_include_dir, os.path.basename(include_file))
@@ -174,8 +206,11 @@ class Pybcli:
             print(f"Command execution complete with return code: {rc}")
         except subprocess.CalledProcessError as e:
             print(f"Command error: {e}")
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             print(f"Error: File {file} not found")
+            print(f"An unexpected error occurred: {e}")
+            traceback.print_exc()
+
         except KeyboardInterrupt:
             print("Execution interrupted")
             rc = 130
@@ -217,7 +252,6 @@ class Pybcli:
         global_annotation_re = re.compile(r"#bcli:\s+(\w+)\s+(.*)")
         function_re = re.compile(r"(?m)^\s*(\w+)\s*\(\s*\)\s*\{")
         func_annotation_re = re.compile(r"#bcli:func\s+(\w+)\s+(.*)")
-        include_re = re.compile(r"^\s*(?:\.|source)\s+([^\s;]+)", re.MULTILINE)
 
         # Extract global annotations
         global_annotations = {}
@@ -244,16 +278,7 @@ class Pybcli:
             functions.append({'name': name, 'annotations': annotations})
 
         # Extract includes
-        includes = []
-        for match in include_re.finditer(content):
-            include_line = match.group(0).strip().split(';')[0]  # Capture only the include statement
-            include_path = match.group(1)
-            full_path = os.path.abspath(os.path.join(os.path.dirname(file_path), include_path))
-            includes.append({
-                'line_number': content[:match.start()].count('\n') + 1,
-                'include_line': include_line,
-                'full_path': full_path
-            })
+        includes = self.resolve_includes(file_path, file_path)
 
         file_metadata = {
             'file': file_path,

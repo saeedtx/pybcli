@@ -113,11 +113,13 @@ class TestPybcli(unittest.TestCase):
             {
                 'line_number': 1,
                 'include_line': '. ./simple.sh',
+                'include_path': './simple.sh',
                 'full_path': os.path.abspath(os.path.join(self.BASH_SCRIPTS_DIR, 'simple.sh'))
             },
             {
                 'line_number': 2,
                 'include_line': 'source ./moderate.sh',
+                'include_path': './moderate.sh',
                 'full_path': os.path.abspath(os.path.join(self.BASH_SCRIPTS_DIR, 'moderate.sh'))
             }
         ]
