@@ -77,12 +77,6 @@ class Pybcli:
                 home_metadata[ns] = files
         return home_metadata
 
-    def resolve_file(self, namespace, fname):
-        metadata = self.load_all_metadata()
-        if namespace not in metadata or fname not in metadata[namespace]:
-            raise FileNotFoundError(f"File '{fname}' not found in namespace '{namespace}'")
-        return metadata[namespace][fname]
-
     def bash_popen(self, file, func, *args):
         # Execute the function from the file
         print(f"Executing '{file}'->'{func}' {args}")
@@ -184,7 +178,25 @@ class Pybcli:
 
     def handle_exec(self, remote, namespace, fname, func, *args):
         namespace = namespace or "default"
-        file = self.resolve_file(namespace, fname)
+
+        metadata = self.load_all_metadata()
+        if namespace not in metadata or fname not in metadata[namespace]:
+            raise FileNotFoundError(f"File '{fname}' not found in namespace '{namespace}'")
+
+        file = metadata[namespace][fname]
+        if args and len(args) and args[0] == '--help':
+            file_metadata = self.scan_bash_file(file)
+            for function in file_metadata['functions']:
+                if function['name'] == func:
+                    description = function['annotations'].get('description') or ""
+                    args_annotation = function['annotations'].get('args')
+                    opts_annotation = function['annotations'].get('opts')
+                    if args_annotation:
+                        print(f"usage: {func} {args_annotation} // {description}")
+                        if opts_annotation:
+                            print(f"options: {opts_annotation}")
+                        return 0
+
         process = None
         # TODO: handle return code properly
         rc = 127
@@ -293,26 +305,32 @@ class Pybcli:
 
         return file_metadata
 
-    def handle_info(self, verbosity=1):
+    def handle_info(self, verbosity=1, namespace=None, fname=None, func=None):
         # Print the contents of the config YAML files for both home and sys
         for name in ['home', 'sys']:
             metadata = self.load_metadata(is_sys=(name == 'sys'))
             print(f"--- {name.upper()} CONFIG ---")
             for ns, files in metadata.items():
-                print(f"Namespace: {ns}")
-                for fname, fpath in files.items():
-                    print(f"  {fname}: {fpath}")
-                    if verbosity >= 2:
-                        file_metadata = self.scan_bash_file(fpath)
-                        if not file_metadata:
+                    if namespace and ns != namespace:
+                        continue
+                    print(f"Namespace: {ns}")
+                    for file_name, file_path in files.items():
+                        if fname and file_name != fname:
                             continue
-                        if verbosity == 2:
-                            for func in file_metadata['functions']:
-                                description = func['annotations'].get('description') or ""
-                                print(f"    - {func['name'] : <25} {description}")
-                        elif verbosity >= 3:
-                            print("    Metadata:")
-                            print(json.dumps(file_metadata, indent=4))
+                        print(f"  {file_name}: {file_path}")
+                        if verbosity >= 1:
+                            file_metadata = self.scan_bash_file(file_path)
+                            if not file_metadata:
+                                continue
+                            if verbosity == 2:
+                                for function in file_metadata['functions']:
+                                    if func and function['name'] != func:
+                                        continue
+                                    description = function['annotations'].get('description') or ""
+                                    print(f"    - {function['name'] : <25} {description}")
+                            elif verbosity >= 3:
+                                print("    Metadata:")
+                                print(json.dumps(file_metadata, indent=4))
 
     def handle_purge(self):
         # Load metadata for both home and sys
@@ -393,7 +411,7 @@ def arg_complete(comp_cword, prev, curr, comp_words):
     if comp_cword == 1:
         options = ["import", "remove", "exec", "info", "purge", "install-bash-completion"]
         return [f for f in options if f.startswith(curr)]
-
+    #comp_words = comp_words.split()
     cmd = comp_words[1] or ''
     # Custom argument completion logic
     if cmd == 'import':
@@ -415,7 +433,7 @@ def arg_complete(comp_cword, prev, curr, comp_words):
         options += [f"sys.{ns}" for ns in sys_namespaces]
         for ns in home_namespaces + sys_namespaces:
                 return [f for f in options if f.startswith(curr)]
-    elif cmd == 'exec' or cmd == 'remove':
+    elif cmd == 'exec' or cmd == 'remove' or cmd == 'info':
         # remove --ssh server from comp_words
         # find the index of --ssh
         if '--ssh' in comp_words:
@@ -453,6 +471,30 @@ def arg_complete(comp_cword, prev, curr, comp_words):
                 if file_metadata:
                     functions = [f['name'] for f in file_metadata['functions']]
                     return [f for f in functions if f.startswith(curr)]
+        elif comp_cword > 4:
+            # Provide completion for function arguments and options
+            pybcli = Pybcli()
+            namespace = comp_words[2]
+            file = comp_words[3]
+            func = comp_words[4]
+            metadata = pybcli.load_all_metadata()
+            if namespace in metadata and file in metadata[namespace]:
+                file_path = metadata[namespace][file]
+                file_metadata = pybcli.scan_bash_file(file_path)
+                if file_metadata:
+                    for function in file_metadata['functions']:
+                        if function['name'] == func:
+                            args_annotation = function['annotations'].get('args')
+                            opts_annotation = function['annotations'].get('opts')
+                            if args_annotation:
+                                args_list = args_annotation.split()
+                                if comp_cword - 5 < len(args_list):
+                                    args_list = [ args_list[comp_cword - 5] ]
+                                    return [f for f in args_list if f.startswith(curr)]
+                            if opts_annotation:
+                                print(f"curr: {curr}", file=sys.stderr)
+                                opts_list = opts_annotation.split()
+                                return [f for f in opts_list if f.startswith(curr)]
     return []
 
 def install_bash_completion(system_wide=True):
@@ -471,6 +513,7 @@ def install_bash_completion(system_wide=True):
             COMPREPLY=($(compgen -A hostname -- "$cur"))
             return
         }
+        #echo bcli complete "$cword" \\"$prev\\" \\"$cur\\" \\"${words[@]}\\"
         COMPREPLY+=($(bcli complete \"$cword\" \"$prev\" \"$cur\" "${words[@]}"))
     }
     complete -o default -F _pybcli_completion bcli pybcli ./pybcli.py pybcli.py
@@ -486,6 +529,7 @@ def install_bash_completion(system_wide=True):
     print(f"Writing bash completion script to {completion_file}...")
     with open(completion_file, 'w') as f:
         f.write(bash_completion_script)
+        f.close()
     print(f"Bash completion script installed to {completion_file}")
 
 def main():
@@ -510,6 +554,9 @@ def main():
     # Info subcommand
     info_parser = subparsers.add_parser('info', help='Display configuration information')
     info_parser.add_argument('-v', '--verbose', action='count', default=0, help='Increase verbosity level')
+    info_parser.add_argument('namespace', nargs='?', help='The namespace of the file')
+    info_parser.add_argument('file', nargs='?', help='The file containing the function')
+    info_parser.add_argument('func', nargs='?', help='The function to execute')
 
     # Purge subcommand
     subparsers.add_parser('purge', help='Purge non-existing files from metadata')
@@ -524,7 +571,7 @@ def main():
     complete_parser.add_argument('comp_cword', type=int, help='COMP_CWORD')
     complete_parser.add_argument('prev', help='Previous word')
     complete_parser.add_argument('curr', help='Current word')
-    complete_parser.add_argument('comp_words', nargs=argparse.REMAINDER, help='COMP_WORDS')
+    complete_parser.add_argument('comp_words',  nargs=argparse.REMAINDER, help='COMP_WORDS')
 
     # Install completion script subcommand
     subparsers.add_parser('install-bash-completion', help='Install bash completion script')
@@ -546,7 +593,7 @@ def main():
     elif args.command == 'exec':
         pybcli.handle_exec(args.ssh, args.namespace, args.file, args.func, *args.args)
     elif args.command == 'info':
-        pybcli.handle_info(args.verbose)
+        pybcli.handle_info(args.verbose, args.namespace, args.file, args.func)
     elif args.command == 'purge':
         pybcli.handle_purge()
     elif args.command == 'remove':
