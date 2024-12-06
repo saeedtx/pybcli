@@ -108,6 +108,9 @@ class Pybcli:
             include_line = match.group(0).strip().split(';')[0]  # Capture only the include statement
             include_path = match.group(1)
             full_path = os.path.abspath(os.path.join(os.path.dirname(main_file), include_path))
+            # Ignore external files and only process internal includes that are forward from the file being run
+            if not os.path.exists(full_path) or not full_path.startswith(os.path.dirname(main_file)):
+                continue
             if full_path not in seen_files:
                 seen_files.add(full_path)
                 includes.append({
