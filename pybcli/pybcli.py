@@ -2,6 +2,7 @@
 import argparse
 import subprocess
 import os
+import sys
 import yaml
 import argcomplete  # Add import for argcomplete
 import re
@@ -93,12 +94,12 @@ class Pybcli:
     def resolve_includes(self, main_file, file_path, seen_files=None):
         if seen_files is None:
             seen_files = set()
-        print(f"Resolving includes in {file_path}")
+        #print(f"Resolving includes in {file_path}")
         try:
             with open(file_path, 'r') as f:
                 content = f.read()
         except FileNotFoundError:
-            print(f"Error: File {file_path} not found")
+            print(f"Error: resolve_includes File {file_path} not found", file=sys.stderr)
             return []
 
         include_re = re.compile(r"^\s*(?:\.|source)\s+([^\s;]+)", re.MULTILINE)
@@ -242,8 +243,8 @@ class Pybcli:
     def scan_bash_file(self, file_path):
         # Scan a bash file and extract metadata
         if not os.path.exists(file_path):
-            print("\nFile doesn't exist. Please run bcli2 purge.")
-            return None
+            print(f"{file_path} doesn't exist. Please run bcli purge", file=sys.stderr)
+            return {}
 
         with open(file_path, 'r') as f:
             content = f.read()
@@ -310,9 +311,43 @@ class Pybcli:
                             print("    Metadata:")
                             print(json.dumps(file_metadata, indent=4))
 
+    def handle_purge(self):
+        # Load metadata for both home and sys
+        home_metadata = self.load_metadata(is_sys=False)
+        sys_metadata = self.load_metadata(is_sys=True)
+
+        # Function to purge non-existing files from metadata
+        def purge_metadata(metadata):
+            purged_metadata = {}
+            for namespace, files in metadata.items():
+                purged_files = {fname: fpath for fname, fpath in files.items() if os.path.exists(fpath)}
+                if purged_files:
+                    purged_metadata[namespace] = purged_files
+            return purged_metadata
+
+        # Purge home metadata
+        if home_metadata:
+            purged_home_metadata = purge_metadata(home_metadata)
+            with open(self.home_metadata_file, 'w') as mf:
+                yaml.safe_dump(purged_home_metadata, mf)
+                mf.close()
+            print(f"Purged home metadata at '{self.home_metadata_file}'")
+
+        # Purge sys metadata
+        if sys_metadata:
+            purged_sys_metadata = purge_metadata(sys_metadata)
+            # check permissions
+            if os.geteuid() != 0:
+                print("You need to be root to purge sys metadata")
+                return
+            with open(self.sys_metadata_file, 'w') as mf:
+                yaml.safe_dump(purged_sys_metadata, mf)
+                mf.close()
+            print(f"Purged sys metadata at '{self.sys_metadata_file}'")
+
 def arg_complete(comp_cword, prev, curr, comp_words):
     if comp_cword == 1:
-        options = ["import", "exec", "info"]
+        options = ["import", "exec", "info", "purge", "install-bash-completion"]
         return [f for f in options if f.startswith(curr)]
 
     cmd = comp_words[1] or ''
@@ -392,9 +427,9 @@ def install_bash_completion(system_wide=True):
             COMPREPLY=($(compgen -A hostname -- "$cur"))
             return
         }
-        COMPREPLY+=($(pybcli complete \"$cword\" \"$prev\" \"$cur\" "${words[@]}"))
+        COMPREPLY+=($(bcli complete \"$cword\" \"$prev\" \"$cur\" "${words[@]}"))
     }
-    complete -o default -F _pybcli_completion pybcli ./pybcli.py pybcli.py
+    complete -o default -F _pybcli_completion bcli pybcli ./pybcli.py pybcli.py
     """
     if system_wide:
         completion_dir = "/etc/bash_completion.d"
@@ -432,6 +467,9 @@ def main():
     info_parser = subparsers.add_parser('info', help='Display configuration information')
     info_parser.add_argument('-v', '--verbose', action='count', default=0, help='Increase verbosity level')
 
+    # Purge subcommand
+    subparsers.add_parser('purge', help='Purge non-existing files from metadata')
+
     # Complete subcommand for custom bash completion
     complete_parser = subparsers.add_parser('complete', help='Provide bash completion')
     complete_parser.add_argument('comp_cword', type=int, help='COMP_CWORD')
@@ -460,6 +498,8 @@ def main():
         pybcli.handle_exec(args.ssh, args.namespace, args.file, args.func, *args.args)
     elif args.command == 'info':
         pybcli.handle_info(args.verbose)
+    elif args.command == 'purge':
+        pybcli.handle_purge()
     elif args.command == 'complete':
         completions = arg_complete(args.comp_cword, args.prev, args.curr, args.comp_words)
         for completion in completions:

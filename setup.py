@@ -36,7 +36,7 @@ setup(
     packages=find_packages(include=['pybcli', 'pybcli.*']),
     entry_points={
         'console_scripts': [
-            'pybcli=pybcli.pybcli:main',  # Correctly reference the main function in pybcli.py
+            'bcli=pybcli.pybcli:main',  # Correctly reference the main function in pybcli.py
         ],
     },
     cmdclass={
