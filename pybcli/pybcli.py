@@ -111,7 +111,8 @@ class Pybcli:
                     'line_number': content[:match.start()].count('\n') + 1,
                     'include_line': include_line,
                     'include_path': include_path,
-                    'full_path': full_path
+                    'full_path': full_path,
+                    'included_from': file_path
                 })
                 # Recursively resolve includes in the included file
                 includes.extend(self.resolve_includes(main_file, full_path, seen_files))
