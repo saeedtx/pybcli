@@ -348,9 +348,50 @@ class Pybcli:
                 mf.close()
             print(f"Purged sys metadata at '{self.sys_metadata_file}'")
 
+    def handle_remove(self, namespace, fname=None):
+        # Load metadata for both home and sys
+        home_metadata = self.load_metadata(is_sys=False)
+        sys_metadata = self.load_metadata(is_sys=True)
+
+        def remove_from_metadata(metadata):
+            if namespace in metadata:
+                if fname:
+                    if fname in metadata[namespace]:
+                        del metadata[namespace][fname]
+                        if not metadata[namespace]:  # Remove namespace if empty
+                            del metadata[namespace]
+                        return True
+                else:
+                    del metadata[namespace]
+                    return True
+            return False
+
+        # Remove from home metadata
+        home_updated = remove_from_metadata(home_metadata)
+        if home_updated:
+            with open(self.home_metadata_file, 'w') as mf:
+                yaml.safe_dump(home_metadata, mf)
+                mf.close()
+            print(f"Updated home metadata at '{self.home_metadata_file}'")
+
+        # Remove from sys metadata
+        sys_updated = remove_from_metadata(sys_metadata)
+        if sys_updated:
+            # check permissions
+            if os.geteuid() != 0:
+                print("You need to be root to modify sys metadata")
+                return
+            with open(self.sys_metadata_file, 'w') as mf:
+                yaml.safe_dump(sys_metadata, mf)
+                mf.close()
+            print(f"Updated sys metadata at '{self.sys_metadata_file}'")
+
+        if not home_updated and not sys_updated:
+            print(f"Namespace '{namespace}' or file '{fname}' not found in metadata")
+
 def arg_complete(comp_cword, prev, curr, comp_words):
     if comp_cword == 1:
-        options = ["import", "exec", "info", "purge", "install-bash-completion"]
+        options = ["import", "remove", "exec", "info", "purge", "install-bash-completion"]
         return [f for f in options if f.startswith(curr)]
 
     cmd = comp_words[1] or ''
@@ -374,7 +415,7 @@ def arg_complete(comp_cword, prev, curr, comp_words):
         options += [f"sys.{ns}" for ns in sys_namespaces]
         for ns in home_namespaces + sys_namespaces:
                 return [f for f in options if f.startswith(curr)]
-    elif cmd == 'exec':
+    elif cmd == 'exec' or cmd == 'remove':
         # remove --ssh server from comp_words
         # find the index of --ssh
         if '--ssh' in comp_words:
@@ -473,6 +514,11 @@ def main():
     # Purge subcommand
     subparsers.add_parser('purge', help='Purge non-existing files from metadata')
 
+    # Remove subcommand
+    remove_parser = subparsers.add_parser('remove', help='Remove a namespace or a specific file within a namespace')
+    remove_parser.add_argument('namespace', help='The namespace to remove')
+    remove_parser.add_argument('file', nargs='?', help='The file to remove within the namespace')
+
     # Complete subcommand for custom bash completion
     complete_parser = subparsers.add_parser('complete', help='Provide bash completion')
     complete_parser.add_argument('comp_cword', type=int, help='COMP_CWORD')
@@ -503,6 +549,8 @@ def main():
         pybcli.handle_info(args.verbose)
     elif args.command == 'purge':
         pybcli.handle_purge()
+    elif args.command == 'remove':
+        pybcli.handle_remove(args.namespace, args.file)
     elif args.command == 'complete':
         completions = arg_complete(args.comp_cword, args.prev, args.curr, args.comp_words)
         for completion in completions:
