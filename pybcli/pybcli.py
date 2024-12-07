@@ -32,7 +32,7 @@ class Pybcli:
         # Update metadata
         metadata_file = self.sys_metadata_file if location == "sys" else self.home_metadata_file
         metadata = self.load_metadata(is_sys=(location == "sys"))
-
+        print(f"Importing '{path}' into namespace '{namespace}' at '{metadata_file}'")
         namespace = self._reslove_name_space(path, namespace)
         if namespace not in metadata:
             metadata[namespace] = {}
@@ -587,8 +587,6 @@ def main():
         if args.namespace and '.' in args.namespace:
             location = args.namespace.split('.')[0]
             args.namespace = args.namespace.split('.')[1]
-        elif not args.namespace:
-            args.namespace = os.path.basename(os.path.normpath(args.path))
         print(f"location: {location}, namespace: {args.namespace}")
         pybcli.handle_import(args.path, location, args.namespace)
     elif args.command == 'exec':
