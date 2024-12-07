@@ -27,7 +27,10 @@ forward_args()
 
 args_test() {
     echo "Running args_test"
-    echo "Args: $@"
+    echo why?
+    echo "ArgsX: $1"
+
     echo "Args: $1 $2"
-    forward_args $@
+    forward_args $1
+    sync
 }

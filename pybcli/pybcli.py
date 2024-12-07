@@ -80,9 +80,7 @@ class Pybcli:
 
     def bash_popen(self, file, func, *args):
         # Execute the function from the file
-        #print(f"Executing '{file}'->'{func}' {args}")
-        command = f"set -e; source {file} && {func} {' '.join(args)} && wait"
-        #print(f"Executing command: {command}")
+        command = f"set -e; source {file} && {func} {' '.join(map(str, args))} && wait"
         file_dir = os.path.dirname(file)
         return subprocess.Popen(["bash", "-c", command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=file_dir)
 
@@ -178,7 +176,7 @@ class Pybcli:
                 return result.returncode
 
         # Execute the function via the persistent SSH connection
-        remote_command = f"bash -c 'set -e; cd {remote_temp_dir} && source {os.path.basename(file)} && {func} {' '.join(args)}' && wait"
+        remote_command = f"bash -c 'set -e; cd {remote_temp_dir} && source {os.path.basename(file)} && {func} {' '.join(map(str, args))}' && wait"
         exec_command = [
             "ssh", "-o", f"ControlPath={ssh_control_path}", remote, remote_command
         ]
@@ -233,9 +231,11 @@ class Pybcli:
                     break
 
             # Print any remaining errors
+            stdout = process.stdout.read()
+            if stdout:
+                print(stdout)
             stderr = process.stderr.read()
             if stderr:
-                print("--- STDERR ---")
                 print(stderr)
             rc = process.poll()
             #print(f"Command execution complete with return code: {rc}")
