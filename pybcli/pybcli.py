@@ -79,9 +79,9 @@ class Pybcli:
 
     def bash_popen(self, file, func, *args):
         # Execute the function from the file
-        print(f"Executing '{file}'->'{func}' {args}")
+        #print(f"Executing '{file}'->'{func}' {args}")
         command = f"source {file} && {func} {' '.join(args)} && wait"
-        print(f"Executing command: {command}")
+        #print(f"Executing command: {command}")
         file_dir = os.path.dirname(file)
         return subprocess.Popen(["bash", "-c", command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=file_dir)
 
@@ -125,7 +125,7 @@ class Pybcli:
         ssh_command = [
             "ssh", "-MNf", "-o", f"ControlPath={ssh_control_path}", "-o", "ControlMaster=yes", remote
         ]
-        print(f"Opening persistent SSH connection to {remote}: {ssh_control_path}...")
+       # print(f"Opening persistent SSH connection to {remote}: {ssh_control_path}...")
         subprocess.run(ssh_command, check=True)
 
         # Create a temporary directory on the remote machine
@@ -133,7 +133,7 @@ class Pybcli:
         ssh_mkdir_command = [
             "ssh", "-o", f"ControlPath={ssh_control_path}", remote, f"mkdir -p {remote_temp_dir}"
         ]
-        print(f"Creating temporary directory {remote_temp_dir} on {remote}...")
+        #print(f"Creating temporary directory {remote_temp_dir} on {remote}...")
         subprocess.run(ssh_mkdir_command, check=True)
 
         # Send the bash file and its includes using SCP via the persistent connection
@@ -141,13 +141,13 @@ class Pybcli:
         scp_command = [
             "scp", "-o", f"ControlPath={ssh_control_path}", file, f"{remote}:{remote_file}"
         ]
-        print(f"Transferring {file} to {remote}:{remote_file}...")
+        #print(f"Transferring {file} to {remote}:{remote_file}...")
         subprocess.run(scp_command, check=True)
 
         # Scan the file for includes and transfer them as well
-        print(f"Resolving includes for {file}...")
+        #print(f"Resolving includes for {file}...")
         includes = self.resolve_includes(file, file)
-        print(f"Resolved  includes for {file}...")
+        #print(f"Resolved  includes for {file}...")
         for include in includes:
             include_file = include['full_path']
             include_path = include['include_path']
@@ -158,13 +158,13 @@ class Pybcli:
             ssh_mkdir_command = [
                 "ssh", "-o", f"ControlPath={ssh_control_path}", remote, f"mkdir -p {remote_include_dir}"
             ]
-            print(f"Creating directory {remote_include_dir} on {remote}...")
+            #print(f"Creating directory {remote_include_dir} on {remote}...")
             subprocess.run(ssh_mkdir_command, check=True)
             # Transfer the include file
             scp_command = [
                 "scp", "-o", f"ControlPath={ssh_control_path}", include_file, f"{remote}:{remote_include_file}"
             ]
-            print(f"Transferring {include_file} to {remote}:{remote_include_file}...")
+            #print(f"Transferring {include_file} to {remote}:{remote_include_file}...")
             subprocess.run(scp_command, check=True)
 
         # Execute the function via the persistent SSH connection
@@ -172,7 +172,7 @@ class Pybcli:
         exec_command = [
             "ssh", "-o", f"ControlPath={ssh_control_path}", remote, remote_command
         ]
-        print(f"Executing command: {remote_command}")
+        #print(f"Executing command: {remote_command}")
         process = subprocess.Popen(exec_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         process.ssh_control_path__ = ssh_control_path
         return process
@@ -220,7 +220,7 @@ class Pybcli:
                 print("--- STDERR ---")
                 print(stderr)
             rc = process.poll()
-            print(f"Command execution complete with return code: {rc}")
+            #print(f"Command execution complete with return code: {rc}")
         except subprocess.CalledProcessError as e:
             print(f"Command error: {e}")
         except FileNotFoundError as e:
@@ -252,7 +252,7 @@ class Pybcli:
             if process and hasattr(process, 'ssh_control_path__'):
                 # Close the persistent SSH connection
                 close_command = ["ssh", "-O", "exit", "-o", f"ControlPath={process.ssh_control_path__}", remote]
-                print("Closing persistent SSH connection...")
+                #print("Closing persistent SSH connection...")
                 subprocess.run(close_command, check=False)
         return rc
 
