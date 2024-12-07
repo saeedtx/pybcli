@@ -80,7 +80,7 @@ class Pybcli:
     def bash_popen(self, file, func, *args):
         # Execute the function from the file
         #print(f"Executing '{file}'->'{func}' {args}")
-        command = f"source {file} && {func} {' '.join(args)} && wait"
+        command = f"source {file} && set -x && {func} {' '.join(args)} && wait"
         #print(f"Executing command: {command}")
         file_dir = os.path.dirname(file)
         return subprocess.Popen(["bash", "-c", command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=file_dir)
@@ -168,7 +168,7 @@ class Pybcli:
             subprocess.run(scp_command, check=True)
 
         # Execute the function via the persistent SSH connection
-        remote_command = f"bash -c 'cd {remote_temp_dir} && source {os.path.basename(file)} && {func} {' '.join(args)}' && wait"
+        remote_command = f"bash -c 'cd {remote_temp_dir} && source {os.path.basename(file)} && set -x && {func} {' '.join(args)}' && wait"
         exec_command = [
             "ssh", "-o", f"ControlPath={ssh_control_path}", remote, remote_command
         ]
