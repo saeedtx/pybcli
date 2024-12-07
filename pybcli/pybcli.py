@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import select
 import subprocess
 import os
 import sys
@@ -80,7 +81,7 @@ class Pybcli:
     def bash_popen(self, file, func, *args):
         # Execute the function from the file
         #print(f"Executing '{file}'->'{func}' {args}")
-        command = f"source {file} && set -x && {func} {' '.join(args)} && wait"
+        command = f"set -e; source {file} && {func} {' '.join(args)} && wait"
         #print(f"Executing command: {command}")
         file_dir = os.path.dirname(file)
         return subprocess.Popen(["bash", "-c", command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=file_dir)
@@ -142,7 +143,12 @@ class Pybcli:
             "scp", "-o", f"ControlPath={ssh_control_path}", file, f"{remote}:{remote_file}"
         ]
         #print(f"Transferring {file} to {remote}:{remote_file}...")
-        subprocess.run(scp_command, check=True)
+
+        result = subprocess.run(scp_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            print(f"Error transferring {file} to {remote}:{remote_file}")
+            print(result.stderr)
+            return result.returncode
 
         # Scan the file for includes and transfer them as well
         #print(f"Resolving includes for {file}...")
@@ -165,10 +171,14 @@ class Pybcli:
                 "scp", "-o", f"ControlPath={ssh_control_path}", include_file, f"{remote}:{remote_include_file}"
             ]
             #print(f"Transferring {include_file} to {remote}:{remote_include_file}...")
-            subprocess.run(scp_command, check=True)
+            result = subprocess.run(scp_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if result.returncode != 0:
+                print(f"Error transferring {file} to {remote}:{remote_file}")
+                print(result.stderr)
+                return result.returncode
 
         # Execute the function via the persistent SSH connection
-        remote_command = f"bash -c 'cd {remote_temp_dir} && source {os.path.basename(file)} && set -x && {func} {' '.join(args)}' && wait"
+        remote_command = f"bash -c 'set -e; cd {remote_temp_dir} && source {os.path.basename(file)} && {func} {' '.join(args)}' && wait"
         exec_command = [
             "ssh", "-o", f"ControlPath={ssh_control_path}", remote, remote_command
         ]
@@ -208,11 +218,19 @@ class Pybcli:
                 process = self.bash_popen(file, func, *args)
             # Stream the output and errors while the command is running
             while True:
-                output = process.stdout.readline()
-                if output == "" and process.poll() is not None:
+                reads = [process.stdout.fileno(), process.stderr.fileno()]
+                ret = select.select(reads, [], [])
+                for fd in ret[0]:
+                    if fd == process.stdout.fileno():
+                        output = process.stdout.readline()
+                        if output:
+                            print(output, end="")
+                    if fd == process.stderr.fileno():
+                        error = process.stderr.readline()
+                        if error:
+                            print(error, end="")
+                if process.poll() is not None:
                     break
-                if output:
-                    print(output, end="")
 
             # Print any remaining errors
             stderr = process.stderr.read()
@@ -253,7 +271,7 @@ class Pybcli:
                 # Close the persistent SSH connection
                 close_command = ["ssh", "-O", "exit", "-o", f"ControlPath={process.ssh_control_path__}", remote]
                 #print("Closing persistent SSH connection...")
-                subprocess.run(close_command, check=False)
+                subprocess.run(close_command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return rc
 
     def scan_bash_file(self, file_path):
