@@ -7,6 +7,7 @@ Long gone the days of forgetting where you put that one bash function that you n
 
 ## Key Features
 
+- cli like with autocompletion
 - Import a bash file (with functions) or directory into a namespace
 - Execute a function from a file within a namespace
 - **Execute a function from a file within a namespace over SSH**
@@ -20,8 +21,14 @@ To install Pybcli, clone the repository and install the dependencies:
 ```sh
 git clone https://github.com/saeedtx/pybcli.git
 cd pybcli
-pip install -r requirements.txt
+# user
+pip install .
 bcli install-bash-completion
+# system
+sudo pip install .
+sudo bcli install-bash-completion
+# Restart your shell
+exec bash
 ```
 
 ## Usage
@@ -145,5 +152,4 @@ bcli install-bash-completion
 	```
 
 ## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the BSD 3-Clause License. See the [LICENSE](LICENSE) file for details.

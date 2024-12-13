@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+"""
+CLI tool to manage and execute bash functions locally or over SSH
+Author: Saeed Mahameed <saeed@kernel.org>
+Date: 2024-12-13
+Usage: bcli <command> [<args>]
+       bcli import path [namespace] # Import a file or directory into a namespace
+       bcli exec [--ssh server] namespace file function [args...] # Execute a function from a file in a namespace
+       bcli info [-v] [namespace] [file] [function] # Display configuration information
+       bcli purge # Purge non-existing files from metadata
+       bcli remove namespace [file] # Remove a namespace or a specific file within a namespace
+       bcli install-bash-completion # Install bash completion script
+       bcli [TAB] [TAB] # Provide bash completion
+"""
 import argparse
 import select
 import subprocess
