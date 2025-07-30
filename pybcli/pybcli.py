@@ -94,8 +94,7 @@ class Pybcli:
     def bash_popen(self, file, func, *args):
         # Execute the function from the file
         command = f"set -e; source {file} && {func} {' '.join(map(str, args))} && wait"
-        file_dir = os.path.dirname(file)
-        return subprocess.Popen(["bash", "-c", command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=file_dir)
+        return subprocess.Popen(["bash", "-c", command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     def resolve_includes(self, main_file, file_path, seen_files=None):
         if seen_files is None:
