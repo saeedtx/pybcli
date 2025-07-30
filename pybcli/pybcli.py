@@ -133,7 +133,8 @@ class Pybcli:
     def ssh_popen(self, remote, file, func, *args):
         # Open a persistent SSH connection using ControlMaster
         fname = os.path.splitext(os.path.basename(file))[0]
-        ssh_control_path = tempfile.mktemp(prefix=f"bcli_ssh_control_{fname}_{func}_{remote.replace('@', '_')}-")
+        parent_pid = os.getppid()
+        ssh_control_path = tempfile.mktemp(prefix=f"bclissh-{parent_pid}-")
         ssh_command = [
             "ssh", "-MNf", "-o", f"ControlPath={ssh_control_path}", "-o", "ControlMaster=yes", remote
         ]
