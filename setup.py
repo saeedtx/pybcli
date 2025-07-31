@@ -34,6 +34,10 @@ setup(
     description='CLI tool to manage and execute bash functions locally or over SSH',
     author='Saeed Mahameed <saeed@kernel.org>',
     packages=find_packages(include=['pybcli', 'pybcli.*']),
+    install_requires=[
+        'pyyaml',
+        'argcomplete',
+    ],
     entry_points={
         'console_scripts': [
             'bcli=pybcli.pybcli:main',  # Correctly reference the main function in pybcli.py
